@@ -31,6 +31,9 @@ Bu skill'in klasörü: `SKILL_DIR` (bu dosyanın bulunduğu klasör). Script: `S
 - `uv tool install "yt-dlp[default,curl-cffi]"` (curl-cffi bot kontrolü riskini azaltır).
 - ffmpeg gerekmez. Sadece altyazısı olmayan videolar için Whisper yedeği istenirse gerekir (varsayılan kapalı).
 
+### Windows notu (tüm komutlar için geçerli)
+`python3` yerine `python` (Python yoksa `uv run --python 3.12 python`), `~/NicheRadar` yerine `%USERPROFILE%\NicheRadar` (PowerShell'de `$HOME\NicheRadar`). Aşağıdaki komutlar Unix biçiminde yazıldı; Windows'ta bu dönüşümü uygula.
+
 ### 2. Kur
 ```
 python3 SKILL_DIR/scripts/radar.py install
@@ -47,7 +50,7 @@ python3 ~/NicheRadar/radar.py add-channel @nicksaraev @NateHerk
 ### 4. Tercihler (`~/NicheRadar/config.json`)
 Kullanıcıya sadece şunları sor, gerisi varsayılan kalsın:
 - `summary_lang` (varsayılan "Türkçe")
-- `schedule_time` (varsayılan "08:00")
+- `schedule_time` (varsayılan "08:00"; biçim HH:MM, 00-23:00-59; script geçersiz değeri reddeder)
 - `report_dir` (boşsa `~/NicheRadar/reports`; Obsidian vault gibi bir klasör isterse tam yol)
 - `telegram.bot_token` + `chat_id` (isteğe bağlı; BotFather'dan token, chat id için @userinfobot)
 
@@ -85,7 +88,7 @@ python3 ~/NicheRadar/radar.py schedule status
 | Belirti | Sebep | Çözüm |
 |---|---|---|
 | "Sign in to confirm you're not a bot" | VPN, Private Relay, CGNAT veya yoğun istek | VPN/Relay kapat; `sleep_seconds` artır; son çare `ytdlp_extra_args: ["--cookies-from-browser","chrome"]` (hesap riski, kullanıcıya söyle) |
-| Rapor boş / "yeni video yok" | Gerçekten yeni içerik yok | Normal. `state.json` içindeki seen listesine bak |
+| O gün rapor dosyası oluşmadı, logda "yeni video yok" | Gerçekten yeni içerik yok | Normal, rapor sadece yeni içerik varsa yazılır. `state.json` içindeki seen listesine bak |
 | "transkript yok" | Kanal altyazıyı kapatmış veya auto-caption henüz oluşmamış | Yarın tekrar denemek için `state.json`'dan id'yi sil; ya da `whisper.enabled: true` + ffmpeg |
 | Claude hatası / zaman aşımı | `claude` login düşmüş veya launchd PATH'i eksik | Terminalde `claude -p "ok"` dene; `schedule install` PATH'i yeniden yazar |
 | Kanal çözülemedi | Handle yanlış | YouTube'da kanal sayfasını aç, URL'deki `@handle`'ı kullan |

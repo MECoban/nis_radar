@@ -29,11 +29,13 @@ import json
 import os
 import platform
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+from xml.sax.saxutils import escape as xml_escape
 from pathlib import Path
 from urllib import parse, request
 
@@ -337,9 +339,16 @@ def whisper_transcript(cfg: dict, vid: str, folder: Path) -> str:
     audio = folder / "audio.m4a"
     if r.returncode != 0 or not audio.exists():
         return ""
-    cmd = cfg["whisper"]["command"].format(audio=str(audio), outdir=str(folder))
     try:
-        subprocess.run(cmd, shell=True, env=env(), timeout=1800, capture_output=True)
+        argv = [a.format(audio=str(audio), outdir=str(folder)) for a in shlex.split(cfg["whisper"]["command"])]
+    except (ValueError, KeyError, IndexError) as e:
+        log("  ! whisper.command hatali: %s" % e)
+        return ""
+    if not which(argv[0]):
+        log("  ! whisper komutu bulunamadi: %s" % argv[0])
+        return ""
+    try:
+        subprocess.run(argv, env=env(), timeout=1800, capture_output=True)
     except subprocess.TimeoutExpired:
         return ""
     txts = list(folder.glob("*.txt"))
@@ -517,10 +526,10 @@ def cmd_run(args) -> None:
             log("  %s/%s: %d listelendi, %d yeni" % (ch["name"], tab, len(items), len(new)))
             queue.extend(new)
 
-    if args.limit:
-        queue = queue[: args.limit]
-    queue = queue[: cfg["max_per_run"]]
-    log("islenecek: %d video" % len(queue))
+    cap = min(args.limit or cfg["max_per_run"], cfg["max_per_run"])
+    deferred = queue[cap:]
+    queue = queue[:cap]
+    log("islenecek: %d video%s" % (len(queue), (", %d tanesi sonraki calismaya ertelendi" % len(deferred)) if deferred else ""))
 
     if args.dry_run:
         for i in queue:
@@ -629,7 +638,10 @@ def schedule_status_text() -> str:
 
 def cmd_schedule(args) -> None:
     cfg = load_config()
-    hh, mm = cfg["schedule_time"].split(":")
+    m = re.fullmatch(r"([01]?\d|2[0-3]):([0-5]\d)", str(cfg["schedule_time"]).strip())
+    if not m:
+        raise SystemExit("config.json schedule_time gecersiz: %r (beklenen HH:MM, 00-23:00-59)" % cfg["schedule_time"])
+    hh, mm = m.group(1).zfill(2), m.group(2)
     script = HOME / "radar.py"
     if not script.exists():
         cmd_install(args)
@@ -658,7 +670,8 @@ def cmd_schedule(args) -> None:
   <key>StandardOutPath</key><string>%s</string>
   <key>StandardErrorPath</key><string>%s</string>
 </dict></plist>
-""" % (LABEL, py, script, HOME, int(hh), int(mm), path_env, Path.home(), LOGS / "launchd.out.log", LOGS / "launchd.err.log"),
+""" % tuple([LABEL] + [xml_escape(str(x)) for x in (py, script, HOME)] + [int(hh), int(mm)]
+            + [xml_escape(str(x)) for x in (path_env, Path.home(), LOGS / "launchd.out.log", LOGS / "launchd.err.log")]),
             encoding="utf-8")
         run(["launchctl", "bootout", "gui/%d/%s" % (os.getuid(), LABEL)], timeout=30)
         r = run(["launchctl", "bootstrap", "gui/%d" % os.getuid(), str(p)], timeout=30)
@@ -682,7 +695,7 @@ def cmd_schedule(args) -> None:
     <ExecutionTimeLimit>PT2H</ExecutionTimeLimit><MultipleInstances>IgnoreNew</MultipleInstances></Settings>
   <Actions Context="Author"><Exec><Command>%s</Command><Arguments>"%s" run</Arguments><WorkingDirectory>%s</WorkingDirectory></Exec></Actions>
 </Task>
-""" % (hh, mm, py, script, HOME), encoding="utf-16")
+""" % (hh, mm, xml_escape(str(py)), xml_escape(str(script)), xml_escape(str(HOME))), encoding="utf-16")
         r = run(["schtasks", "/Create", "/TN", "NicheRadar", "/XML", str(xml_path), "/F"], timeout=30)
         if r.returncode != 0:
             raise SystemExit("schtasks hatasi: %s %s" % (r.stdout.strip(), r.stderr.strip()))
