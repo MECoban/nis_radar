@@ -1,9 +1,9 @@
 ---
-name: niche-radar
+name: nis_radar
 description: Nişindeki YouTube kanallarını (video + Shorts) her gün otomatik tarayıp transkriptlerinden Türkçe özet raporu çıkaran kişisel radar sistemini kurar, çalıştırır ve yönetir. "niche radar", "youtube kanal takibi", "rakipleri izle", "günlük video özeti", "transkript raporu" gibi isteklerde kullan.
 ---
 
-# Niche Radar
+# Niş Radar
 
 Kullanıcının kendi bilgisayarında çalışan günlük YouTube izleme asistanı. Akış:
 `yt-dlp ile keşif (videos + shorts sekmesi)` → `altyazı indir (video indirmeden)` → `claude -p ile özet` → `~/NicheRadar/reports/YYYY-MM-DD.md` → `bildirim`.
@@ -95,4 +95,4 @@ python3 ~/NicheRadar/radar.py schedule status
 | yt-dlp bozuldu | YouTube değişikliği | `uv tool upgrade yt-dlp` |
 
 ## Paylaşım
-Bu klasörü olduğu gibi `~/.claude/skills/niche-radar/` (Windows: `%USERPROFILE%\.claude\skills\niche-radar\`) altına kopyalayan herkes Claude Code'da `/niche-radar` yazıp aynı kurulumu yapar.
+Bu klasörü olduğu gibi `~/.claude/skills/nis_radar/` (Windows: `%USERPROFILE%\.claude\skills\nis_radar\`) altına kopyalayan herkes Claude Code'da `/nis_radar` yazıp aynı kurulumu yapar.

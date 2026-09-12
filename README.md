@@ -1,4 +1,4 @@
-# Niche Radar
+# Niş Radar
 
 Takip ettiğin YouTube kanallarının (uzun video + Shorts) yeni içeriklerini her sabah bulur, transkriptini çeker, Claude ile özetler ve tek bir Markdown rapor bırakır. Kendi bilgisayarında çalışır, sunucu yok, API anahtarı yok.
 
@@ -8,8 +8,8 @@ Takip ettiğin YouTube kanallarının (uzun video + Shorts) yeni içeriklerini h
 - `uv` (yt-dlp'yi kurmak için)
 
 ## Kurulum (Claude Code ile, önerilen)
-1. Bu klasörü `~/.claude/skills/niche-radar/` altına kopyala (Windows: `%USERPROFILE%\.claude\skills\niche-radar\`).
-2. Claude Code'u aç, `/niche-radar` yaz. Claude bağımlılıkları kurar, kanallarını sorar, ilk raporu üretir, zamanlayıcıyı kurar.
+1. Bu klasörü `~/.claude/skills/nis_radar/` altına kopyala (Windows: `%USERPROFILE%\.claude\skills\nis_radar\`).
+2. Claude Code'u aç, `/nis_radar` yaz. Claude bağımlılıkları kurar, kanallarını sorar, ilk raporu üretir, zamanlayıcıyı kurar.
 
 ## Kurulum (elle)
 Windows'ta `python3` yerine `python`, `~/NicheRadar` yerine `%USERPROFILE%\NicheRadar` kullan.
