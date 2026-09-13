@@ -41,7 +41,7 @@ python3 SKILL_DIR/scripts/radar.py install
 `~/NicheRadar/` altında `config.json`, `prompt.md`, `digest_prompt.md`, `radar.py` kopyası, `reports/`, `logs/`, `cache/` oluşur. Bundan sonra komutları `~/NicheRadar/radar.py` üzerinden çalıştır.
 
 ### 3. Kanalları al
-Kullanıcıya sor: hangi kanallar? (`@handle`, kanal URL'i veya `UC...` id). Hepsini tek komutta ekle:
+Kullanıcıya açıkça sor: "Hangi rakipleri / hangi YouTube kanallarını takip edelim? Kanal linklerini yapıştır." (`@handle`, kanal URL'i veya `UC...` id kabul edilir; video linki değil kanal linki). Cevabı bekle, sonra hepsini tek komutta ekle:
 ```
 python3 ~/NicheRadar/radar.py add-channel @nicksaraev @NateHerk
 ```
@@ -54,7 +54,7 @@ Kullanıcıya sadece şunları sor, gerisi varsayılan kalsın:
 - `report_dir` (boşsa `~/NicheRadar/reports`; Obsidian vault gibi bir klasör isterse tam yol)
 - `telegram.bot_token` + `chat_id` (isteğe bağlı; BotFather'dan token, chat id için @userinfobot)
 
-Diğer önemli ayarlar: `model` ("sonnet" ucuz ve yeterli), `first_run_items` (ilk çalışmada kanal+sekme başına kaç video işlensin, varsayılan 1), `max_per_run` (günlük tavan 20), `max_age_days` (14 günden eski içerik atlanır).
+Diğer önemli ayarlar: `model` ("sonnet" ucuz ve yeterli), `first_run_items` (ilk çalışmada kanal+sekme başına en fazla kaç video, varsayılan 8) + `first_run_days` (ilk çalışmada son kaç gün, varsayılan 7), `max_per_run` (günlük tavan 20), `max_age_days` (14 günden eski içerik atlanır).
 
 ### 5. Sağlık kontrolü
 ```
@@ -68,7 +68,7 @@ python3 ~/NicheRadar/radar.py doctor
 python3 ~/NicheRadar/radar.py run --dry-run
 python3 ~/NicheRadar/radar.py run --limit 3
 ```
-İlk çalışmada mevcut videolar "görüldü" olarak işaretlenir, sadece en yeni `first_run_items` kadarı işlenir. Sonraki çalışmalar yalnızca yeni yüklemeleri işler.
+İlk çalışma son `first_run_days` (7) günün tüm video ve Shorts içeriklerini işler (kanal+sekme başına en fazla `first_run_items`); daha eskiler "görüldü" sayılır. Sonraki çalışmalar yalnızca yeni yüklemeleri işler.
 Raporu (`reports/YYYY-MM-DD.md`) aç, kullanıcıya ilk 20-30 satırı göster.
 
 ### 7. Zamanlayıcı

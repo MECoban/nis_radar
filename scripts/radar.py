@@ -54,7 +54,8 @@ DEFAULT_CONFIG = {
     "channels": [],
     "tabs": ["videos", "shorts"],
     "discover_items": 10,
-    "first_run_items": 1,
+    "first_run_items": 8,
+    "first_run_days": 7,
     "max_per_run": 20,
     "max_age_days": 14,
     "sub_langs": ["en", "tr"],
@@ -538,7 +539,8 @@ def cmd_run(args) -> None:
         return
 
     results = []
-    cutoff = dt.date.today() - dt.timedelta(days=cfg["max_age_days"])
+    age_days = cfg.get("first_run_days", cfg["max_age_days"]) if first_run else cfg["max_age_days"]
+    cutoff = dt.date.today() - dt.timedelta(days=age_days)
     for i in queue:
         log("-> %s | %s" % (i["channel"], i["title"][:70]))
         meta, transcript, status = fetch_transcript(cfg, i["id"])
@@ -583,6 +585,8 @@ def write_report(cfg: dict, results: list, no_llm: bool) -> Path:
     path = rdir / ("%s.md" % today)
     blocks, sections = [], []
     for r in results:
+        if r["status"].startswith("eski"):
+            continue  # tarih penceresi disinda: sadece durum tablosunda gorunur
         i, m = r["item"], r["meta"]
         title = m.get("title") or i["title"]
         url = "https://www.youtube.com/watch?v=%s" % i["id"]
@@ -604,9 +608,10 @@ def write_report(cfg: dict, results: list, no_llm: bool) -> Path:
     status_rows = "\n".join("| %s | %s | %s |" % (cell(r["item"]["channel"]), cell((r["meta"].get("title") or r["item"]["title"])[:60]), cell(r["status"]))
                             for r in results)
     n_sum = sum(1 for r in results if r["summary"] and not r["summary"].startswith("_("))
+    n_old = sum(1 for r in results if r["status"].startswith("eski"))
     out = ["# Niche Radar · %s" % today, "",
-           "**%d yeni içerik**, %d özet, %d atlandı/hatalı. Üretim: %s" % (
-               len(results), n_sum, len(results) - n_sum, now()), ""]
+           "**%d yeni içerik**, %d özet, %d tarih penceresi dışı, %d atlandı/hatalı. Üretim: %s" % (
+               len(results), n_sum, n_old, len(results) - n_sum - n_old, now()), ""]
     if digest:
         out += ["## Günün öne çıkanları", "", digest, ""]
     out += ["## Videolar", ""] + [s + "\n" for s in sections]
