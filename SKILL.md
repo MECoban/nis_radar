@@ -47,14 +47,16 @@ python3 ~/NicheRadar/radar.py add-channel @nicksaraev @NateHerk
 ```
 Çözümleme yt-dlp ile yapılır; hata alırsan handle'ı YouTube'da doğrula.
 
-### 4. Tercihler (`~/NicheRadar/config.json`)
-Kullanıcıya sadece şunları sor, gerisi varsayılan kalsın:
-- `summary_lang` (varsayılan "Türkçe")
-- `schedule_time` (varsayılan "08:00"; biçim HH:MM, 00-23:00-59; script geçersiz değeri reddeder)
-- `report_dir` (boşsa `~/NicheRadar/reports`; Obsidian vault gibi bir klasör isterse tam yol)
-- `telegram.bot_token` + `chat_id` (isteğe bağlı; BotFather'dan token, chat id için @userinfobot)
+### 4. Kurulum soruları (hepsini SOR, cevapları `~/NicheRadar/config.json`'a yaz)
+Kullanıcıya şu üç soruyu sırayla, kısa ve Türkçe sor; cevap gelmeden varsayım yapma:
+1. **Geçmiş:** "Başlangıçta geçmişe ne kadar bakalım? Son 7 gün / son 30 gün / hiç (sadece bundan sonra çıkanlar)."
+   - 7 gün → `first_run_days: 7`, `first_run_items: 10`
+   - 30 gün → `first_run_days: 30`, `first_run_items: 30` (ilk gün en fazla `max_per_run` kadarı işlenir, kalanı sonraki günlere kayar; kullanıcıya söyle)
+   - hiç → `first_run_days: 0`, `first_run_items: 0` (ilk çalışma mevcut içeriği "görüldü" sayar, hiçbir şey işlemez)
+2. **Saat:** "Rapor her gün saat kaçta gelsin?" → `schedule_time` (HH:MM, 00-23:00-59; script geçersiz değeri reddeder). Varsayılan önerin 08:00.
+3. **Dil:** "Özetler hangi dilde olsun?" → `summary_lang` (varsayılan "Türkçe").
 
-Diğer önemli ayarlar: `model` ("sonnet" ucuz ve yeterli), `first_run_items` (ilk çalışmada kanal+sekme başına en fazla kaç video, varsayılan 8) + `first_run_days` (ilk çalışmada son kaç gün, varsayılan 7), `max_per_run` (günlük tavan 20), `max_age_days` (14 günden eski içerik atlanır).
+Sormadan varsayılan bırak: `report_dir` (boşsa `~/NicheRadar/reports`; Obsidian gibi bir klasör isterse tam yol), `telegram` (isteğe bağlı; BotFather token + @userinfobot chat id), `model` ("sonnet" ucuz ve yeterli), `max_per_run` (günlük tavan 20), `max_age_days` (14 günden eski içerik günlük çalışmada atlanır).
 
 ### 5. Sağlık kontrolü
 ```
@@ -68,7 +70,7 @@ python3 ~/NicheRadar/radar.py doctor
 python3 ~/NicheRadar/radar.py run --dry-run
 python3 ~/NicheRadar/radar.py run --limit 3
 ```
-İlk çalışma son `first_run_days` (7) günün tüm video ve Shorts içeriklerini işler (kanal+sekme başına en fazla `first_run_items`); daha eskiler "görüldü" sayılır. Sonraki çalışmalar yalnızca yeni yüklemeleri işler.
+İlk çalışma, kullanıcının seçtiği geçmiş penceresindeki (`first_run_days`: 7 / 30 / 0) tüm video ve Shorts içeriklerini işler (kanal+sekme başına en fazla `first_run_items`); daha eskiler "görüldü" sayılır. 0 seçildiyse ilk çalışma hiçbir şey işlemez, sadece başlangıç noktasını koyar. Sonraki çalışmalar yalnızca yeni yüklemeleri işler.
 Raporu (`reports/YYYY-MM-DD.md`) aç, kullanıcıya ilk 20-30 satırı göster.
 
 ### 7. Zamanlayıcı

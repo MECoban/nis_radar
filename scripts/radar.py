@@ -54,7 +54,7 @@ DEFAULT_CONFIG = {
     "channels": [],
     "tabs": ["videos", "shorts"],
     "discover_items": 10,
-    "first_run_items": 8,
+    "first_run_items": 10,
     "first_run_days": 7,
     "max_per_run": 20,
     "max_age_days": 14,
@@ -514,18 +514,30 @@ def cmd_run(args) -> None:
         if only and only not in ch["name"].lower() and only not in ch.get("handle", "").lower():
             continue
         for tab in cfg["tabs"]:
-            items = discover_tab(ch, tab, cfg["discover_items"])
+            n_disc = cfg["discover_items"]
+            if first_run:
+                n_disc = max(n_disc, int(cfg.get("first_run_items", 0)))
+            items = discover_tab(ch, tab, n_disc)
             time.sleep(cfg["sleep_seconds"])
             new = [i for i in items if i["id"] not in seen]
             if first_run:
-                keep = new[: cfg["first_run_items"]]
-                for i in new[cfg["first_run_items"]:]:
+                n_keep = int(cfg.get("first_run_items", 0))
+                if int(cfg.get("first_run_days", 0)) <= 0:
+                    n_keep = 0  # gecmis istenmedi: hepsi baseline, sadece bundan sonrakiler
+                keep = new[:n_keep]
+                for i in new[n_keep:]:
                     seen[i["id"]] = {"t": now(), "ch": ch["name"], "status": "baseline"}
                 new = keep
             for i in new:
                 i["channel"] = ch["name"]
             log("  %s/%s: %d listelendi, %d yeni" % (ch["name"], tab, len(items), len(new)))
             queue.extend(new)
+
+    if first_run and not queue and not args.dry_run:
+        state["initialized"] = True
+        save_json(STATE, state)
+        log("ilk calisma: gecmis istenmedi, mevcut icerik 'goruldu' sayildi; bundan sonraki yuklemeler islenecek")
+        return
 
     cap = min(args.limit or cfg["max_per_run"], cfg["max_per_run"])
     deferred = queue[cap:]
