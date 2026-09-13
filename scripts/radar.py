@@ -10,7 +10,9 @@ Python 3.9+ ile calisir (macOS'un kendi python3'u yeterlidir).
 
 Komutlar:
   install                 ~/NicheRadar klasorunu, config ve prompt dosyalarini olusturur
-  add-channel <@handle>   Kanal ekler (handle, kanal URL'i veya UC... id)
+  add-channel <@handle>   Kanal ekler (handle, kanal URL'i, video linki veya UC... id)
+  check-channel <...>     Kanali cozumler ama eklemez (oneri dogrulama)
+  remove-channel <...>    Kanali cikarir (ad, handle veya id)
   list                    Kanallari listeler
   doctor                  Bagimliliklari ve agi test eder
   run                     Yeni videolari bulur, ozetler, rapor yazar
@@ -126,8 +128,17 @@ def run(cmd: list, timeout: int = 120, stdin: str | None = None, cwd: Path | Non
 def load_json(path: Path, default):
     if not path.exists():
         return json.loads(json.dumps(default))
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except json.JSONDecodeError as e:
+        bak = path.with_name("%s.corrupt-%s" % (path.name, dt.datetime.now().strftime("%Y%m%d%H%M%S")))
+        try:
+            shutil.copy2(path, bak)
+        except OSError:
+            pass
+        raise SystemExit("%s bozuk (satir %d: %s). Yedek: %s. Dosyayi duzelt ya da sil, sonra tekrar dene."
+                         % (path.name, e.lineno, e.msg, bak.name))
 
 
 def save_json(path: Path, data) -> None:
@@ -186,6 +197,14 @@ def ytdlp_bin() -> str:
 def resolve_channel(raw: str) -> dict:
     """@handle, kanal URL'i veya UC... id -> {"name", "id", "handle"}"""
     raw = raw.strip()
+    mv = re.search(r"(?:youtube\.com/(?:watch\?(?:[^#]*&)?v=|shorts/|live/|embed/)|youtu\.be/)([A-Za-z0-9_-]{11})", raw)
+    if mv:  # video/shorts linki verildi: kanalini bul
+        r = run([ytdlp_bin(), "--no-warnings", "--print", "%(channel_id)s",
+                 "https://www.youtube.com/watch?v=%s" % mv.group(1)], timeout=90)
+        cid = (r.stdout.strip().splitlines() or [""])[0]
+        if not cid.startswith("UC"):
+            raise SystemExit("Video linkinden kanal cozulemedi: %s\n%s" % (raw, r.stderr.strip()[-300:]))
+        raw = cid
     m = re.search(r"(UC[A-Za-z0-9_-]{22})", raw)
     if m and (raw.startswith("UC") or "/channel/" in raw):
         url = "https://www.youtube.com/channel/%s/videos" % m.group(1)
@@ -439,15 +458,52 @@ def cmd_install(args) -> None:
 
 def cmd_add(args) -> None:
     cfg_raw = load_json(CONFIG, DEFAULT_CONFIG)
-    added = []
+    failed = []
     for raw in args.channel:
-        ch = resolve_channel(raw)
+        try:
+            ch = resolve_channel(raw)
+        except SystemExit as e:
+            log("! eklenemedi: %s -> %s" % (raw, str(e).splitlines()[0]))
+            failed.append(raw)
+            continue
         if any(c["id"] == ch["id"] for c in cfg_raw.get("channels", [])):
             log("zaten var: %s" % ch["name"])
             continue
         cfg_raw.setdefault("channels", []).append(ch)
-        added.append(ch)
         log("eklendi: %s (%s)" % (ch["name"], ch["id"]))
+    save_json(CONFIG, cfg_raw)
+    if failed:
+        raise SystemExit("%d kanal eklenemedi: %s (digerleri kaydedildi)" % (len(failed), ", ".join(failed)))
+
+
+def cmd_check(args) -> None:
+    """Kanali cozumle ama config'e YAZMA (oneri adayi dogrulama)."""
+    bad = 0
+    for raw in args.channel:
+        try:
+            ch = resolve_channel(raw)
+            print("OK   %s  %s  %s" % (ch["name"], ch.get("handle", ""), ch["id"]))
+        except SystemExit as e:
+            bad += 1
+            print("YOK  %s  (%s)" % (raw, str(e).splitlines()[0]))
+    if bad:
+        raise SystemExit(1)
+
+
+def cmd_remove(args) -> None:
+    cfg_raw = load_json(CONFIG, DEFAULT_CONFIG)
+    chans = cfg_raw.get("channels", [])
+    for raw in args.channel:
+        key = raw.strip().lstrip("@").lower()
+        hit = [c for c in chans if key in (c["id"].lower(), c.get("handle", "").lstrip("@").lower(), c["name"].lower())
+               or key in c["name"].lower()]
+        if not hit:
+            log("bulunamadi: %s" % raw)
+            continue
+        for c in hit:
+            chans.remove(c)
+            log("cikarildi: %s (%s)" % (c["name"], c["id"]))
+    cfg_raw["channels"] = chans
     save_json(CONFIG, cfg_raw)
 
 
@@ -482,7 +538,15 @@ def cmd_doctor(args) -> None:
             if tool != "ffmpeg":
                 ok = False
     cfg = load_config()
+    if not re.fullmatch(r"([01]?\d|2[0-3]):([0-5]\d)", str(cfg.get("schedule_time", "")).strip()):
+        ok = False
+        print("  saat     : GECERSIZ %r (beklenen HH:MM, ornek 08:00)" % cfg.get("schedule_time"))
+    else:
+        print("  saat     :", cfg["schedule_time"])
     print("  kanallar :", len(cfg["channels"]))
+    state_d = load_json(STATE, {})
+    if state_d.get("backlog"):
+        print("  bekleyen :", len(state_d["backlog"]), "icerik (sonraki calismada islenir)")
     if cfg["channels"] and which("yt-dlp"):
         ch = cfg["channels"][0]
         t0 = time.time()
@@ -499,61 +563,97 @@ def cmd_doctor(args) -> None:
     print("SONUC:", "hazir" if ok else "eksik var")
 
 
+def _slim(i: dict) -> dict:
+    return {k: i[k] for k in ("id", "title", "tab", "channel", "age_days") if k in i}
+
+
 def cmd_run(args) -> None:
     cfg = load_config()
     if not cfg["channels"]:
         raise SystemExit("Kanal yok. Once: radar.py add-channel @handle")
-    state = load_json(STATE, {"seen": {}, "initialized": False})
+    state = load_json(STATE, {"seen": {}, "initialized": False, "backlog": []})
     seen: dict = state.setdefault("seen", {})
+    backlog: list = [i for i in (state.get("backlog") or []) if i.get("id") not in seen]
     first_run = not state.get("initialized")
     only = (args.only or "").lower()
-    log("=== run basladi (first_run=%s dry_run=%s no_llm=%s)" % (first_run, args.dry_run, args.no_llm))
+    if first_run and only:
+        raise SystemExit("Ilk calismada --only kullanilamaz (diger kanallarin baslangic noktasi konmaz). Once tam bir 'run' yap.")
+    first_days = int(cfg.get("first_run_days") or 0)
+    first_items = int(cfg.get("first_run_items") or 0)
+    max_age = int(cfg["max_age_days"])
+    log("=== run basladi (first_run=%s dry_run=%s no_llm=%s bekleyen=%d)" % (first_run, args.dry_run, args.no_llm, len(backlog)))
 
-    queue = []
+    lists: list = []  # kanal/sekme basina listeler; sonra round-robin birlestirilir
+    if backlog:
+        groups: dict = {}
+        for i in backlog:
+            if only and only not in i.get("channel", "").lower():
+                continue
+            groups.setdefault((i.get("channel"), i.get("tab")), []).append(i)
+        lists.extend(groups.values())
+        log("bekleyen: %d icerik onceki calismalardan devraliniyor" % sum(len(v) for v in groups.values()))
+    backlog_ids = {i["id"] for i in backlog}
+
+    total_listed = 0
     for ch in cfg["channels"]:
         if only and only not in ch["name"].lower() and only not in ch.get("handle", "").lower():
             continue
         for tab in cfg["tabs"]:
-            n_disc = cfg["discover_items"]
+            n_disc = int(cfg["discover_items"])
             if first_run:
-                n_disc = max(n_disc, int(cfg.get("first_run_items", 0)))
+                n_disc = max(n_disc, first_items)
             items = discover_tab(ch, tab, n_disc)
             time.sleep(cfg["sleep_seconds"])
-            new = [i for i in items if i["id"] not in seen]
+            total_listed += len(items)
+            new = [i for i in items if i["id"] not in seen and i["id"] not in backlog_ids]
             if first_run:
-                n_keep = int(cfg.get("first_run_items", 0))
-                if int(cfg.get("first_run_days", 0)) <= 0:
-                    n_keep = 0  # gecmis istenmedi: hepsi baseline, sadece bundan sonrakiler
+                n_keep = first_items if first_days > 0 else 0
                 keep = new[:n_keep]
                 for i in new[n_keep:]:
                     seen[i["id"]] = {"t": now(), "ch": ch["name"], "status": "baseline"}
                 new = keep
             for i in new:
                 i["channel"] = ch["name"]
+                i["age_days"] = first_days if first_run else max_age
             log("  %s/%s: %d listelendi, %d yeni" % (ch["name"], tab, len(items), len(new)))
-            queue.extend(new)
+            lists.append(new)
 
-    if first_run and not queue and not args.dry_run:
+    if first_run and total_listed == 0:
+        raise SystemExit("Kesif bos dondu (ag, VPN/Private Relay veya bot kontrolu). Baslangic noktasi KONMADI; "
+                         "'doctor' calistir, sorunu giderip tekrar dene.")
+
+    # round-robin: her kanal/sekme sirayla pay alsin, tek kanal tavani yemesin
+    queue, used = [], set()
+    for k in range(max((len(l) for l in lists), default=0)):
+        for l in lists:
+            if k < len(l) and l[k]["id"] not in used:
+                used.add(l[k]["id"])
+                queue.append(l[k])
+
+    if first_run and first_days <= 0 and not queue and not args.dry_run:
         state["initialized"] = True
+        state["last_run"] = now()
+        state["backlog"] = []
         save_json(STATE, state)
-        log("ilk calisma: gecmis istenmedi, mevcut icerik 'goruldu' sayildi; bundan sonraki yuklemeler islenecek")
+        n_base = sum(1 for v in seen.values() if v.get("status") == "baseline")
+        log("ilk calisma: gecmis istenmedi; mevcut %d icerik 'goruldu' sayildi, bundan sonraki yuklemeler islenecek" % n_base)
         return
 
     cap = min(args.limit or cfg["max_per_run"], cfg["max_per_run"])
-    deferred = queue[cap:]
-    queue = queue[:cap]
-    log("islenecek: %d video%s" % (len(queue), (", %d tanesi sonraki calismaya ertelendi" % len(deferred)) if deferred else ""))
+    log("kuyruk: %d icerik, bu calismada en fazla %d islenecek (pencere disindakiler sayilmaz)" % (len(queue), cap))
 
     if args.dry_run:
         for i in queue:
-            print("  [%s] %s  %s  https://youtu.be/%s" % (i["tab"], i["channel"], i["title"], i["id"]))
+            print("  [%s] %s  %s  https://youtu.be/%s  (pencere %d gun)" % (i["tab"], i["channel"], i["title"], i["id"], i.get("age_days", max_age)))
         log("dry-run bitti, state degismedi")
         return
 
-    results = []
-    age_days = cfg.get("first_run_days", cfg["max_age_days"]) if first_run else cfg["max_age_days"]
-    cutoff = dt.date.today() - dt.timedelta(days=age_days)
-    for i in queue:
+    results, deferred, processed = [], [], 0
+    today = dt.date.today()
+    for idx, i in enumerate(queue):
+        if processed >= cap:
+            deferred = queue[idx:]
+            break
         log("-> %s | %s" % (i["channel"], i["title"][:70]))
         meta, transcript, status = fetch_transcript(cfg, i["id"])
         time.sleep(cfg["sleep_seconds"])
@@ -561,9 +661,12 @@ def cmd_run(args) -> None:
             up = dt.datetime.strptime(meta.get("upload_date", ""), "%Y%m%d").date()
         except ValueError:
             up = None
+        cutoff = today - dt.timedelta(days=int(i.get("age_days", max_age)))
         if up and up < cutoff:
             status = "eski (%s), atlandi" % up.isoformat()
             transcript = ""
+        else:
+            processed += 1
         summary = ""
         if transcript and not args.no_llm:
             summary = summarize(cfg, i, meta, transcript)
@@ -571,13 +674,16 @@ def cmd_run(args) -> None:
             summary = "_(no-llm modu: ozet uretilmedi; transkript %d karakter)_" % len(transcript)
         seen[i["id"]] = {"t": now(), "ch": i["channel"], "status": status}
         results.append({"item": i, "meta": meta, "status": status, "summary": summary, "chars": len(transcript)})
-        state["initialized"] = True
+        state["backlog"] = [_slim(x) for x in queue[idx + 1:]]  # yarida kesilirse kalanlar kaybolmasin
         save_json(STATE, state)
         log("   durum: %s" % status)
 
+    state["backlog"] = [_slim(x) for x in deferred]
     state["initialized"] = True
     state["last_run"] = now()
     save_json(STATE, state)
+    if deferred:
+        log("%d icerik sonraki calismaya ertelendi (bekleyen listede tutuluyor)" % len(deferred))
 
     if not results:
         log("yeni video yok, rapor yazilmadi")
@@ -586,7 +692,8 @@ def cmd_run(args) -> None:
     path = write_report(cfg, results, args.no_llm)
     log("rapor: %s" % path)
     n_ok = sum(1 for r in results if r["summary"] and not r["summary"].startswith("_("))
-    notify(cfg, "Niche Radar", "%d yeni video, %d ozet hazir. %s" % (len(results), n_ok, path.name))
+    n_in = sum(1 for r in results if not r["status"].startswith("eski"))
+    notify(cfg, "Niche Radar", "%d yeni icerik, %d ozet hazir. %s" % (n_in, n_ok, path.name))
     log("=== run bitti")
 
 
@@ -621,12 +728,22 @@ def write_report(cfg: dict, results: list, no_llm: bool) -> Path:
                             for r in results)
     n_sum = sum(1 for r in results if r["summary"] and not r["summary"].startswith("_("))
     n_old = sum(1 for r in results if r["status"].startswith("eski"))
-    out = ["# Niche Radar · %s" % today, "",
-           "**%d yeni içerik**, %d özet, %d tarih penceresi dışı, %d atlandı/hatalı. Üretim: %s" % (
-               len(results), n_sum, n_old, len(results) - n_sum - n_old, now()), ""]
+    n_txt = sum(1 for r in results if r["summary"].startswith("_("))  # no-llm: transkript var, ozet yok
+    n_err = len(results) - n_sum - n_old - n_txt
+    head_line = "**%d yeni içerik**, %d özet" % (len(results) - n_old, n_sum)
+    if n_txt:
+        head_line += ", %d transkript (özetsiz)" % n_txt
+    if n_old:
+        head_line += ", %d tarih penceresi dışı" % n_old
+    if n_err:
+        head_line += ", %d atlandı/hatalı" % n_err
+    out = ["# Niche Radar · %s" % today, "", head_line + ". Üretim: %s" % now(), ""]
     if digest:
         out += ["## Günün öne çıkanları", "", digest, ""]
-    out += ["## Videolar", ""] + [s + "\n" for s in sections]
+    if sections:
+        out += ["## Videolar", ""] + [s + "\n" for s in sections]
+    else:
+        out += ["## Videolar", "", "_Bu çalışmada tarih penceresi içinde yeni içerik yok._", ""]
     out += ["## Durum tablosu", "", "| Kanal | Video | Durum |", "|---|---|---|", status_rows, ""]
     text = "\n".join(out)
     if path.exists():
@@ -722,17 +839,31 @@ def cmd_schedule(args) -> None:
 
 
 # ----------------------------------------------------------------- main
+def positive_int(v: str) -> int:
+    n = int(v)
+    if n <= 0:
+        raise argparse.ArgumentTypeError("pozitif bir sayi olmali")
+    return n
+
+
 def main() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     ap = argparse.ArgumentParser(description="Niche Radar")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("install").set_defaults(fn=cmd_install)
     a = sub.add_parser("add-channel"); a.add_argument("channel", nargs="+"); a.set_defaults(fn=cmd_add)
+    c = sub.add_parser("check-channel"); c.add_argument("channel", nargs="+"); c.set_defaults(fn=cmd_check)
+    d = sub.add_parser("remove-channel"); d.add_argument("channel", nargs="+"); d.set_defaults(fn=cmd_remove)
     sub.add_parser("list").set_defaults(fn=cmd_list)
     sub.add_parser("doctor").set_defaults(fn=cmd_doctor)
     r = sub.add_parser("run")
     r.add_argument("--dry-run", action="store_true")
     r.add_argument("--no-llm", action="store_true")
-    r.add_argument("--limit", type=int, default=0)
+    r.add_argument("--limit", type=positive_int, default=0)
     r.add_argument("--only", default="")
     r.set_defaults(fn=cmd_run)
     s = sub.add_parser("schedule"); s.add_argument("action", choices=["install", "remove", "status"]); s.set_defaults(fn=cmd_schedule)
