@@ -41,14 +41,21 @@ python3 SKILL_DIR/scripts/radar.py install
 `~/NicheRadar/` altında `config.json`, `prompt.md`, `digest_prompt.md`, `radar.py` kopyası, `reports/`, `logs/`, `cache/` oluşur. Bundan sonra komutları `~/NicheRadar/radar.py` üzerinden çalıştır.
 
 ### 3. Kanalları al
-Kullanıcıya açıkça sor: "Hangi rakipleri / hangi YouTube kanallarını takip edelim? Kanal linklerini yapıştır." (`@handle`, kanal URL'i veya `UC...` id kabul edilir; video linki değil kanal linki). Cevabı bekle, sonra hepsini tek komutta ekle:
+Önce kapsamı söyle: "Bu sistem şu an sadece YouTube'u takip ediyor (video + Shorts). Instagram, TikTok, LinkedIn yok."
+Sonra sor: "Aklında takip etmek istediğin kanallar var mı? Varsa linklerini yapıştır. Yoksa nişini / işini söyle, senin için kanal önereyim."
+
+**A) Kullanıcı kanal verdiyse:** `@handle`, kanal URL'i veya `UC...` id kabul edilir; video linki değil kanal linki. Hepsini tek komutta ekle.
+
+**B) Kullanıcı niş söylediyse:** iki soru daha sor: "Global (İngilizce) kanallar mı, Türkiye'deki (Türkçe) kanallar mı, ikisi de mi?" ve "Rakiplerin mi (senin işini yapanlar), yoksa senin müşterinin izlediği üreticiler mi?" Sonra web araması yap (ör. "best <niş> youtube channels 2026", "<niş> youtube kanalları"), 5-8 aday çıkar: kanal adı, @handle, tek cümle neden (abone/sıklık/konu). Her adayı `add-channel` ile ÇÖZÜMLEYEREK doğrula; çözülmeyeni listeden at, uydurma handle önerme. Kullanıcı seçsin, seçilenleri ekle. 3-6 kanal ideal; 10'dan fazlasını önerme (günlük tavan 20 içerik).
+
+Ekleme komutu (iki yol için de aynı):
 ```
 python3 ~/NicheRadar/radar.py add-channel @nicksaraev @NateHerk
 ```
-Çözümleme yt-dlp ile yapılır; hata alırsan handle'ı YouTube'da doğrula.
+Çözümleme yt-dlp ile yapılır; hata alırsan handle'ı YouTube'da doğrula. Eklenen listeyi `list` ile göster ve onaylat.
 
 ### 4. Kurulum soruları (hepsini SOR, cevapları `~/NicheRadar/config.json`'a yaz)
-Kullanıcıya şu üç soruyu sırayla, kısa ve Türkçe sor; cevap gelmeden varsayım yapma:
+Kanallar eklendikten sonra şu üç soruyu sırayla, kısa ve Türkçe sor; cevap gelmeden varsayım yapma:
 1. **Geçmiş:** "Başlangıçta geçmişe ne kadar bakalım? Son 7 gün / son 30 gün / hiç (sadece bundan sonra çıkanlar)."
    - 7 gün → `first_run_days: 7`, `first_run_items: 10`
    - 30 gün → `first_run_days: 30`, `first_run_items: 30` (ilk gün en fazla `max_per_run` kadarı işlenir, kalanı sonraki günlere kayar; kullanıcıya söyle)
