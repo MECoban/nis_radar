@@ -15,6 +15,7 @@ Komutlar:
   remove-channel <...>    Kanali cikarir (ad, handle veya id)
   list                    Kanallari listeler
   doctor                  Bagimliliklari ve agi test eder
+  site                    Tum raporlari tek HTML sayfaya doker (~/NicheRadar/radar_site.html)
   run                     Yeni videolari bulur, ozetler, rapor yazar
       --dry-run           Sadece kesif yapar, hicbir sey indirmez/ozetlemez
       --no-llm            Transkript ceker ama Claude'u cagirmaz
@@ -67,6 +68,8 @@ DEFAULT_CONFIG = {
     "max_transcript_chars": 60000,
     "sleep_seconds": 2,
     "report_dir": "",
+    "site_title": "Niş Radar",
+    "artifact_url": "",
     "schedule_time": "08:00",
     "notify_macos": True,
     "telegram": {"bot_token": "", "chat_id": ""},
@@ -691,6 +694,10 @@ def cmd_run(args) -> None:
 
     path = write_report(cfg, results, args.no_llm)
     log("rapor: %s" % path)
+    try:
+        log("sayfa: %s" % build_site(cfg))
+    except Exception as e:  # noqa: BLE001
+        log("  ! sayfa uretilemedi: %s" % e)
     n_ok = sum(1 for r in results if r["summary"] and not r["summary"].startswith("_("))
     n_in = sum(1 for r in results if not r["status"].startswith("eski"))
     notify(cfg, "Niche Radar", "%d yeni icerik, %d ozet hazir. %s" % (n_in, n_ok, path.name))
@@ -750,6 +757,177 @@ def write_report(cfg: dict, results: list, no_llm: bool) -> Path:
         text = path.read_text(encoding="utf-8") + "\n\n---\n\n" + text
     path.write_text(text, encoding="utf-8")
     return path
+
+
+# ----------------------------------------------------------------- rapor sayfasi (HTML)
+def _md_inline(t: str) -> str:
+    t = html_escape(t)
+    t = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r'<a href="\2" target="_blank" rel="noopener">\1</a>', t)
+    t = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", t)
+    t = re.sub(r"(?<![\w/])_(.+?)_(?!\w)", r"<em>\1</em>", t)
+    t = re.sub(r"`([^`]+)`", r"<code>\1</code>", t)
+    return t
+
+
+def html_escape(t: str) -> str:
+    return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+
+def md_to_html(md: str) -> str:
+    """Rapor markdown'ini HTML'e cevirir (baslik, paragraf, liste, tablo, kalin, link, hr)."""
+    out, para, lst, table = [], [], [], []
+
+    def flush_para():
+        if para:
+            out.append("<p>%s</p>" % _md_inline(" ".join(para)))
+            para.clear()
+
+    def flush_list():
+        if lst:
+            out.append("<ul>%s</ul>" % "".join("<li>%s</li>" % _md_inline(x) for x in lst))
+            lst.clear()
+
+    def flush_table():
+        if table:
+            rows = [r for r in table if not re.fullmatch(r"\|[\s|:-]+\|", r.strip())]
+            cells = [[c.strip() for c in r.strip().strip("|").split("|")] for r in rows]
+            if cells:
+                head = "".join("<th>%s</th>" % _md_inline(c) for c in cells[0])
+                body = "".join("<tr>%s</tr>" % "".join("<td>%s</td>" % _md_inline(c) for c in r) for r in cells[1:])
+                out.append('<div class="tablewrap"><table><thead><tr>%s</tr></thead><tbody>%s</tbody></table></div>' % (head, body))
+            table.clear()
+
+    for raw in md.splitlines():
+        line = raw.rstrip()
+        if line.startswith("|"):
+            flush_para(); flush_list(); table.append(line); continue
+        flush_table()
+        if not line.strip():
+            flush_para(); flush_list(); continue
+        m = re.match(r"^(#{1,4})\s+(.*)$", line)
+        if m:
+            flush_para(); flush_list()
+            lvl = len(m.group(1))
+            title = m.group(2)
+            mt = re.match(r"^\[(.+?)\]\((https?://[^)]+)\)$", title)
+            if lvl == 3 and mt:
+                out.append('<h3 class="vid"><a href="%s" target="_blank" rel="noopener">%s</a></h3>' % (html_escape(mt.group(2)), html_escape(mt.group(1))))
+            else:
+                out.append("<h%d>%s</h%d>" % (lvl, _md_inline(title), lvl))
+            continue
+        if re.match(r"^-{3,}$", line.strip()):
+            flush_para(); flush_list(); out.append("<hr>"); continue
+        if re.match(r"^\s*[-*]\s+", line):
+            flush_para(); lst.append(re.sub(r"^\s*[-*]\s+", "", line)); continue
+        mm = re.match(r"^(Video|Shorts) · \*\*(.+?)\*\* · (.+?) · (.+?) görüntülenme · (\S+)$", line)
+        if mm:
+            flush_para(); flush_list()
+            kind = mm.group(1)
+            out.append('<p class="meta"><span class="chip %s">%s</span><span class="ch">%s</span><span class="num">%s</span><span class="num">%s izlenme</span><span class="num">%s</span></p>'
+                       % (kind.lower(), kind, html_escape(mm.group(2)), html_escape(mm.group(3)), html_escape(mm.group(4)), html_escape(mm.group(5))))
+            continue
+        para.append(line)
+    flush_para(); flush_list(); flush_table()
+    return "\n".join(out)
+
+
+SITE_CSS = """
+:root{--bg:#F4F6F7;--panel:#FFFFFF;--ink:#1A2126;--muted:#5F6C75;--line:#D6DDE2;--accent:#0E8A7D;--accent-ink:#0B6B61;--chip:#E1F2EF;--chip-ink:#0B6B61;--shorts:#FFF1D6;--shorts-ink:#8A5A00;--code:#EEF2F4}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#121619;--panel:#1A2024;--ink:#E6EAEC;--muted:#98A5AE;--line:#2A3238;--accent:#4FD1C5;--accent-ink:#7CE3D9;--chip:#153C38;--chip-ink:#8FE6DC;--shorts:#3D2E12;--shorts-ink:#F5C56B;--code:#222A2F}}
+:root[data-theme="dark"]{--bg:#121619;--panel:#1A2024;--ink:#E6EAEC;--muted:#98A5AE;--line:#2A3238;--accent:#4FD1C5;--accent-ink:#7CE3D9;--chip:#153C38;--chip-ink:#8FE6DC;--shorts:#3D2E12;--shorts-ink:#F5C56B;--code:#222A2F}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Source Sans 3",system-ui,-apple-system,"Segoe UI",sans-serif;font-size:17px;line-height:1.55}
+.wrap{max-width:1100px;margin:0 auto;padding-block:28px 64px;padding-inline:20px;display:grid;grid-template-columns:220px 1fr;gap:32px}
+header.top{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 20px;border-bottom:1px solid var(--line);padding-bottom:14px}
+header.top h1{font-family:"Fraunces",Georgia,serif;font-weight:600;font-size:30px;margin:0;letter-spacing:-.01em}
+header.top .sub{color:var(--muted);font-size:15px}
+nav.days{position:sticky;top:16px;align-self:start;display:flex;flex-direction:column;gap:4px}
+nav.days .lbl{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+nav.days a{color:var(--ink);text-decoration:none;padding:8px 10px;border-radius:6px;font-variant-numeric:tabular-nums;display:flex;justify-content:space-between;gap:8px}
+nav.days a:hover,nav.days a:focus-visible{background:var(--panel);outline:2px solid var(--accent);outline-offset:-2px}
+nav.days a .n{color:var(--muted);font-size:14px}
+main{min-width:0}
+section.day{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:24px 28px;margin-bottom:28px}
+section.day>h2.date{font-family:"Fraunces",Georgia,serif;font-weight:600;font-size:26px;margin:0 0 4px;letter-spacing:-.01em;text-wrap:balance}
+section.day .stat{color:var(--muted);font-size:15px;margin:0 0 18px}
+section.day h2{font-size:15px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:26px 0 10px;font-weight:600}
+h3.vid{font-size:20px;line-height:1.3;margin:22px 0 6px;font-weight:600;text-wrap:balance}
+h3.vid a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line)}
+h3.vid a:hover{color:var(--accent-ink);border-color:var(--accent)}
+p{margin:0 0 10px;max-width:70ch}
+p.meta{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;color:var(--muted);font-size:14px;margin-bottom:10px}
+.chip{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;background:var(--chip);color:var(--chip-ink)}
+.chip.shorts{background:var(--shorts);color:var(--shorts-ink)}
+.ch{font-weight:600;color:var(--ink)}
+.num{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:13px;font-variant-numeric:tabular-nums}
+ul{margin:0 0 10px;padding-left:22px;max-width:70ch}
+li{margin:4px 0}
+a{color:var(--accent-ink)}
+strong{font-weight:600}
+code{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:.9em;background:var(--code);padding:1px 5px;border-radius:4px}
+hr{border:0;border-top:1px dashed var(--line);margin:22px 0}
+details{margin-top:18px}
+details summary{cursor:pointer;color:var(--muted);font-size:14px}
+.tablewrap{overflow-x:auto;margin:10px 0}
+table{border-collapse:collapse;font-size:14px;min-width:420px}
+th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:12px;letter-spacing:.06em;text-transform:uppercase}
+footer{grid-column:1/-1;color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:12px}
+@media (max-width:760px){.wrap{grid-template-columns:1fr;gap:18px}nav.days{position:static;flex-direction:row;flex-wrap:wrap}nav.days .lbl{width:100%}nav.days a{padding:6px 10px;border:1px solid var(--line)}section.day{padding:18px}}
+@media (prefers-reduced-motion:no-preference){nav.days a{transition:background .15s}}
+"""
+
+
+def build_site(cfg: dict) -> Path:
+    """Tum gunluk raporlari tek HTML sayfada toplar (en yeni ustte). Artifact olarak yayinlanmaya hazir."""
+    rdir = report_dir(cfg)
+    files = sorted(rdir.glob("????-??-??.md"), reverse=True) if rdir.exists() else []
+    title = cfg.get("site_title") or "Niş Radar"
+    chans = ", ".join(c["name"] for c in cfg.get("channels", []))
+    nav, secs = [], []
+    for f in files:
+        day = f.stem
+        md = f.read_text(encoding="utf-8", errors="replace")
+        # ilk satirdaki baslik ve ozet satirini ayikla
+        body_lines = [l for l in md.splitlines() if not l.startswith("# Niche Radar")]
+        stat = ""
+        for l in body_lines:
+            if l.startswith("**") and "içerik" in l:
+                stat = re.sub(r"\.\s*Üretim:.*$", "", l).replace("**", "")
+                break
+        body = "\n".join(l for l in body_lines if not (l.startswith("**") and "içerik" in l))
+        # durum tablosunu katlanir yap
+        body_html = md_to_html(body)
+        body_html = body_html.replace("<h2>Durum tablosu</h2>", '<details><summary>Durum tablosu</summary>')
+        if "<details>" in body_html:
+            body_html += "</details>"
+        n_vid = len(re.findall(r'<h3 class="vid">', body_html))
+        nav.append('<a href="#d%s">%s <span class="n">%d</span></a>' % (day, day, n_vid))
+        secs.append('<section class="day" id="d%s"><h2 class="date">%s</h2><p class="stat">%s</p>%s</section>'
+                    % (day, day, html_escape(stat), body_html))
+    if not secs:
+        secs.append('<section class="day"><h2 class="date">Henüz rapor yok</h2><p>İlk çalışma tamamlanınca burada görünecek.</p></section>')
+    page = """<title>%s</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400&display=swap">
+<style>%s</style>
+<div class="wrap">
+<header class="top"><h1>%s</h1><span class="sub">YouTube · video + Shorts · %s</span><span class="sub">Güncelleme: %s</span></header>
+<nav class="days"><span class="lbl">Günler</span>%s</nav>
+<main>%s</main>
+<footer>Raporlar bilgisayarında üretildi (Niş Radar). Özetler yapay zekâ çıktısıdır; kaynak için video linkine git.</footer>
+</div>
+""" % (html_escape(title), SITE_CSS, html_escape(title), html_escape(chans), now(), "".join(nav), "".join(secs))
+    out = HOME / "radar_site.html"
+    out.write_text(page, encoding="utf-8")
+    return out
+
+
+def cmd_site(args) -> None:
+    cfg = load_config()
+    out = build_site(cfg)
+    print("sayfa: %s" % out)
+    if cfg.get("artifact_url"):
+        print("artifact: %s  (Claude Code'da '/nis_radar yayinla' ile ayni linke basilir)" % cfg["artifact_url"])
 
 
 # ----------------------------------------------------------------- zamanlayici
@@ -860,6 +1038,7 @@ def main() -> None:
     d = sub.add_parser("remove-channel"); d.add_argument("channel", nargs="+"); d.set_defaults(fn=cmd_remove)
     sub.add_parser("list").set_defaults(fn=cmd_list)
     sub.add_parser("doctor").set_defaults(fn=cmd_doctor)
+    sub.add_parser("site").set_defaults(fn=cmd_site)
     r = sub.add_parser("run")
     r.add_argument("--dry-run", action="store_true")
     r.add_argument("--no-llm", action="store_true")

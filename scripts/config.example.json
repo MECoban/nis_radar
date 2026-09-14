@@ -13,6 +13,8 @@
   "max_transcript_chars": 60000,
   "sleep_seconds": 2,
   "report_dir": "",
+  "site_title": "Niş Radar",
+  "artifact_url": "",
   "schedule_time": "08:00",
   "notify_macos": true,
   "telegram": { "bot_token": "", "chat_id": "" },

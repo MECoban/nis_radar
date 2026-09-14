@@ -96,8 +96,19 @@ python3 ~/NicheRadar/radar.py schedule status
 - Windows: Task Scheduler görevi "NicheRadar", WakeToRun + StartWhenAvailable açık. Anında test: `schtasks /Run /TN NicheRadar`.
 - Linux: cron satırı ekrana yazılır.
 
-### 8. Kullanıcıya teslim
-Şunları açıkça söyle: rapor nerede, kanal nasıl eklenir (`add-channel`) ve çıkarılır (`remove-channel`), nasıl kapatılır (`schedule remove`), hata olursa ne yapılır (`doctor` + `logs/radar.log`), günlük maliyet (Claude aboneliği içinde, ekstra altyapı yok), `prompt.md` dosyasını kendi işine göre değiştirebileceği (özet formatı ve odak orada).
+### 8. Rapor sayfası (artifact) · ilk yayın
+Her `run` sonunda tüm raporlar tek bir HTML sayfaya dökülür: `~/NicheRadar/radar_site.html` (gün gün, en yeni üstte; `site` komutu elle de üretir). Bu sayfayı Artifact aracıyla yayınla:
+1. `python3 ~/NicheRadar/radar.py site`
+2. Dosyayı çalışma dizinine kopyala (Artifact aracı sadece çalışma dizini / scratchpad altını kabul eder): `cp ~/NicheRadar/radar_site.html ./nis_radar_rapor.html`
+3. Artifact aracı: `file_path` = o kopya, `favicon` 📡, `description` "Takip edilen YouTube kanallarının günlük video ve Shorts özetleri".
+4. Dönen URL'i `~/NicheRadar/config.json` içine `"artifact_url"` olarak yaz ve kullanıcıya ver: "Raporun sabit linki bu; her sabah rapor bilgisayarında güncellenir, sayfaya yansıtmak için bana `/nis_radar yayınla` de."
+Sınır (kullanıcıya söyle): sabah koşusu sayfayı kendisi basamaz (yayın aracı sadece açık Claude Code oturumunda var); yayın tek komutla, istediğin sıklıkta.
+
+### 9. Yeniden yayın (`/nis_radar yayınla` / "yayınla" / "sayfayı güncelle")
+`site` çalıştır, kopyala, Artifact aracını `url` = config'deki `artifact_url` ile çağır (aynı link güncellenir, favicon geçme). Config'de `artifact_url` yoksa Bölüm 8'deki ilk yayını yap.
+
+### 10. Kullanıcıya teslim
+Şunları açıkça söyle: rapor nerede (klasör + artifact linki), kanal nasıl eklenir (`add-channel`) ve çıkarılır (`remove-channel`), nasıl kapatılır (`schedule remove`), hata olursa ne yapılır (`doctor` + `logs/radar.log`), günlük maliyet (Claude aboneliği içinde, ekstra altyapı yok), `prompt.md` dosyasını kendi işine göre değiştirebileceği (özet formatı ve odak orada).
 
 ## Sorun giderme
 
