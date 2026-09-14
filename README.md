@@ -29,7 +29,7 @@ python3 ~/NicheRadar/radar.py schedule install
 1. **Keşif:** her kanalın `videos` ve `shorts` sekmesinden son 10 içerik (yt-dlp flat listing; API anahtarı gerekmez). RSS yedek. İlk çalışmada `first_run_days` (7 / 30 / 0) penceresi uygulanır; günlük tavanı (`max_per_run`) aşan içerik bekleyen listede tutulur ve sonraki çalışmalarda önce işlenir. Kanallar sırayla pay alır.
 2. **Transkript:** `yt-dlp --skip-download --write-auto-subs`. Video inmez, sadece VTT altyazı. Tekrarlı satırlar temizlenir.
 3. **Özet:** her video için `claude -p` çağrısı, `prompt.md` şablonuyla. Sonra tek bir "günün öne çıkanları" özeti (`digest_prompt.md`).
-4. **Rapor:** `~/NicheRadar/reports/YYYY-MM-DD.md` + macOS bildirimi + isteğe bağlı Telegram.
+4. **Rapor:** `~/NicheRadar/reports/YYYY-MM-DD.md` + macOS bildirimi + isteğe bağlı Telegram. Ayrıca tüm günler tek HTML sayfada: `~/NicheRadar/radar_site.html` (`site` komutu); Claude Code'da `/nis_radar yayınla` deyince sabit bir artifact linkine basılır.
 5. **Durum:** her video için "altyazı / transkript yok / eski / hata" satırı rapor sonunda. Yeni içerik yoksa o gün rapor dosyası oluşmaz, `logs/radar.log` "yeni video yok" yazar.
 
 ## Sınırlar (dürüst)
